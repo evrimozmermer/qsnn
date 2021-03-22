@@ -24,17 +24,20 @@ class QSNN(nn.Module):
         torch.nn.init.kaiming_normal_(self.omega, mode='fan_out')
         torch.nn.init.kaiming_normal_(self.phase, mode='fan_out')
         
-        self.fc0 = nn.Linear(1, 1024, bias=False)
+        self.fc0 = nn.Linear(1, 32, bias=False)
         torch.nn.init.kaiming_normal_(self.fc0.weight, mode='fan_out')
-        self.fc1 = nn.Linear(1024, qubits, bias=False)
+        self.fc1 = nn.Linear(32, 32, bias=False)
         torch.nn.init.kaiming_normal_(self.fc1.weight, mode='fan_out')
+        self.fc2 = nn.Linear(32, qubits, bias=False)
+        torch.nn.init.kaiming_normal_(self.fc2.weight, mode='fan_out')
         
         self.softmax = torch.nn.Softmax(dim=None)
     
     def forward(self, t):
         l = self.fc0(t)
         l = self.fc1(l)
-        out = self.amplitude*torch.sin(2*self.pi*t*self.omega)/2
+        l = self.fc2(l)
+        out = torch.sin(100*self.pi*l*self.omega-self.phase)/2
         out = out+0.5
         return out
     
@@ -47,9 +50,9 @@ class QSNN(nn.Module):
         return state
 
 qubits = 4
-sample_size = 128
+sample_size = 1024
 measured_states = torch.round(torch.rand(sample_size, qubits))
-measured_time = torch.rand(sample_size,1)
+measured_time = torch.linspace(0,1,sample_size).unsqueeze(1)
 dataset_ = torch.cat((measured_time,measured_states), dim = 1)
 dataset_np = dataset_.numpy()
 
@@ -65,12 +68,13 @@ class QDataset(Dataset):
 
 dataset = QDataset(dataset_)
 dataset_loader = torch.utils.data.DataLoader(dataset,
-                                             batch_size=1, shuffle=False,
+                                             batch_size=16, shuffle=False,
                                              num_workers=0)
 
 model = QSNN(qubits)
-criterion = nn.BCEWithLogitsLoss()
-opt = torch.optim.AdamW(lr = 0.01, params = model.parameters())
+# criterion = nn.BCEWithLogitsLoss()
+criterion = nn.MSELoss()
+opt = torch.optim.AdamW(lr = 0.0001, params = model.parameters())
 
 for epoch in range(2000):
     for sample in dataset_loader:
@@ -80,12 +84,14 @@ for epoch in range(2000):
         opt.zero_grad()
         loss.backward()
         print("EPOCH:", epoch)
-        print("LOSS:", loss.item())
+        print("LOSS:", torch.sum(torch.abs(state - sample[:,1:]))/(4*16))
         opt.step()
         # print("|--->\nFIELD:\n\t{}\nSTATE:\n\t{}\n--->|\n".format(field,state))
         # print("STATE:", state)
         # print("TO-BE:", sample[:,1:])
         # print("\n")
 
-
-
+import matplotlib.pyplot as plt
+gg = model(torch.linspace(0,1,1000).unsqueeze(1))
+[plt.scatter(torch.linspace(0,1,1000),gg[:,i].detach()) for i in range(4)]
+plt.grid()
